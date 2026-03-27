@@ -1,0 +1,8 @@
+.env
+/debug
+/cropped
+/downloads
+/sprites - Copy
+*.pyc
+/__pycache__
+/dev
