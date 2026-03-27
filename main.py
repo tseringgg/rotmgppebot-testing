@@ -122,7 +122,7 @@ async def on_message(message: discord.Message):
         return
 
     await bot.process_commands(message)
-
+    print("Message received")
     # --- PNG attachment listener ---
     # Find the first PNG attachment, if any
     attachment = next(
