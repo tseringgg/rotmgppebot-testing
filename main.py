@@ -633,6 +633,7 @@ async def list_admins_cmd_handler(interaction: discord.Interaction):
     app_commands.Choice(name="toggle", value="toggle"),
     app_commands.Choice(name="status", value="status"),
 ])
+@require_ppe_roles(admin_required=True)
 async def itemsuggestions(interaction: discord.Interaction, action: app_commands.Choice[str]):
     await itemsuggestions_cmd.command(interaction, action.value)
 
