@@ -29,13 +29,14 @@ CONFIDENCE_THRESHOLD = 0.7      # Minimum template-match confidence to accept an
 OCR_CONFIDENCE_THRESHOLD = 10   # Minimum per-token Tesseract confidence to keep
 OCR_UPSCALE_FACTOR = 4          # Nearest-neighbor upscale multiplier before OCR
 OCR_PADDING_SIZE = 20           # White pixels added around the cropped region
-FUZZY_MATCH_THRESHOLD = 85      # Minimum suffix-match score to accept a result (0-100)
+FUZZY_MATCH_THRESHOLD = 50      # Minimum suffix-match score to accept a result (0-100)
 FUZZY_MATCH_TOP_N = 3           # How many top candidates to evaluate
 
 # Description region geometry (relative to the first anchor position)
 DESC_REGION_OFFSET_Y = -37      # Y offset when no second anchor is found (fallback)
 DESC_REGION_WIDTH = 600         # Fallback width when no second anchor is found
 DESC_REGION_HEIGHT = 35         # Fallback height when no second anchor is found
+DESC_LINE_GAP = 2               # Pixel gap between consecutive description line crops
 
 # Supported image formats for template loading
 SUPPORTED_FORMATS = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.PNG", "*.JPG", "*.JPEG", "*.WEBP"]
@@ -618,6 +619,9 @@ def _save_debug_artifacts(
     passes_threshold: bool,
     ocr_results: Dict,
     output_dir: str,
+    line2_tl: Optional[Tuple[int, int]] = None,
+    line2_br: Optional[Tuple[int, int]] = None,
+    ocr2_results: Optional[Dict] = None,
 ) -> None:
     """Save an annotated debug image, the OCR crop, and per-variant preprocessed images."""
     os.makedirs(output_dir, exist_ok=True)
@@ -639,13 +643,19 @@ def _save_debug_artifacts(
         c2 = (second_anchor_pos[0] + aw // 2, second_anchor_pos[1] + ah // 2)
         cv2.line(annotated, c1, c2, (0, 255, 255), 2)
 
-    # Description region box
+    # Description region boxes (line 1, and line 2 above if present)
     cv2.rectangle(annotated, desc_tl, desc_br, _DESC_REGION_COLOR, _RECT_THICKNESS)
+    if line2_tl is not None and line2_br is not None:
+        cv2.rectangle(annotated, line2_tl, line2_br, _DESC_REGION_COLOR, _RECT_THICKNESS)
     cv2.imwrite(os.path.join(output_dir, f"debug_{filename}"), annotated)
 
     if ocr_results.get("cropped_region") is not None:
         cv2.imwrite(os.path.join(output_dir, f"crop_{base}.png"),
                     ocr_results["cropped_region"])
+
+    if ocr2_results is not None and ocr2_results.get("cropped_region") is not None:
+        cv2.imwrite(os.path.join(output_dir, f"crop_{base}_line2.png"),
+                    ocr2_results["cropped_region"])
 
     for v in ocr_results.get("all_variants", []):
         vi = v.get("variant_image")
@@ -762,9 +772,9 @@ def detect_item_from_image_path(
 
     cropped = image[y1:y2, x1:x2]
 
-    # --- OCR the description line ---
+    # --- OCR the description line (line 1 — bottom line) ---
     if debug:
-        print("[detect] Running OCR on description region...")
+        print("[detect] Running OCR on description region (line 1)...")
     ocr = ocr_desc_region(cropped, debug=debug)
     ocr["cropped_region"] = cropped  # attach so debug artifacts can save it
 
@@ -778,13 +788,45 @@ def detect_item_from_image_path(
 
     ocr_text = ocr["desc_last_line"]
     if debug:
-        print(f"[detect] OCR text: '{ocr_text}' "
+        print(f"[detect] OCR line 1 text: '{ocr_text}' "
               f"(avg_conf={ocr['average_confidence']:.1f})")
+
+    # --- OCR the line above the first description region (line 2) ---
+    line_h = desc_br[1] - desc_tl[1]
+    line2_tl = (desc_tl[0], desc_tl[1] - line_h - DESC_LINE_GAP)
+    line2_br = (desc_br[0], desc_tl[1] - DESC_LINE_GAP)
+
+    line2_x1, line2_y1 = max(0, line2_tl[0]), max(0, line2_tl[1])
+    line2_x2, line2_y2 = min(iw, line2_br[0]), min(ih, line2_br[1])
+
+    ocr2: Optional[Dict] = None
+    ocr2_text = ""
+    if line2_x2 > line2_x1 and line2_y2 > line2_y1:
+        cropped2 = image[line2_y1:line2_y2, line2_x1:line2_x2]
+        if debug:
+            print("[detect] Running OCR on description region (line 2 — line above)...")
+        ocr2 = ocr_desc_region(cropped2, debug=debug)
+        ocr2["cropped_region"] = cropped2
+        if ocr2["success"] and ocr2["desc_last_line"].strip():
+            ocr2_text = ocr2["desc_last_line"]
+            if debug:
+                print(f"[detect] OCR line 2 text: '{ocr2_text}' "
+                      f"(avg_conf={ocr2['average_confidence']:.1f})")
+        elif debug:
+            print("[detect] OCR line 2 produced no usable text; using single line only")
+    elif debug:
+        print("[detect] Line-above region is out of image bounds; using single line only")
+
+    # Stitch in reading order (line above first), skipping empty results
+    lines = [t for t in [ocr2_text, ocr_text] if t.strip()]
+    stitched_ocr_text = " ".join(lines)
+    if debug:
+        print(f"[detect] Stitched OCR text: '{stitched_ocr_text}'")
 
     # --- Fuzzy-match against description suffixes ---
     if debug:
         print("[detect] Fuzzy-matching against description suffixes...")
-    candidates = find_best_matches(ocr_text, item_descriptions)
+    candidates = find_best_matches(stitched_ocr_text, item_descriptions)
     best = choose_best_match(candidates, FUZZY_MATCH_THRESHOLD)
 
     if debug:
@@ -794,7 +836,8 @@ def detect_item_from_image_path(
         print(f"[detect] Accepted: {best['name'] if best else 'None (below threshold)'}")
         _save_debug_artifacts(image, os.path.basename(image_path),
                               top_left, bottom_right, second_anchor_pos,
-                              desc_tl, desc_br, True, ocr, debug_output_dir)
+                              desc_tl, desc_br, True, ocr, debug_output_dir,
+                              line2_tl=line2_tl, line2_br=line2_br, ocr2_results=ocr2)
 
     if best is None:
         return None
@@ -802,6 +845,6 @@ def detect_item_from_image_path(
     return {
         "item_name": best["name"],
         "score": best["score"],
-        "matched_text": ocr_text,
+        "matched_text": stitched_ocr_text,
         "matched_suffix": best["matched_suffix"],
     }

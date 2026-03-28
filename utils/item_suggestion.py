@@ -75,6 +75,8 @@ class ItemSuggestionView(discord.ui.View):
         super().__init__(timeout=180)
         self.target_user_id = target_user_id
         self.suggested_item = suggested_item
+        self.is_shiny = False
+        self.is_divine = False
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -100,10 +102,50 @@ class ItemSuggestionView(discord.ui.View):
         await interaction.response.edit_message(content=result_text, view=None)
 
     # ------------------------------------------------------------------
+    # Dropdowns (with disabled label buttons above each)
+    # ------------------------------------------------------------------
+
+    @discord.ui.button(label="Shiny?", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+    async def shiny_label(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass  # label only — never fires
+
+    @discord.ui.select(
+        placeholder="No",
+        options=[
+            discord.SelectOption(label="No", value="no", default=True),
+            discord.SelectOption(label="Yes", value="yes"),
+        ],
+        row=1,
+    )
+    async def shiny_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await self._check_authorized(interaction):
+            return
+        self.is_shiny = select.values[0] == "yes"
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Divine?", style=discord.ButtonStyle.secondary, disabled=True, row=2)
+    async def divine_label(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass  # label only — never fires
+
+    @discord.ui.select(
+        placeholder="No",
+        options=[
+            discord.SelectOption(label="No", value="no", default=True),
+            discord.SelectOption(label="Yes", value="yes"),
+        ],
+        row=3,
+    )
+    async def divine_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if not await self._check_authorized(interaction):
+            return
+        self.is_divine = select.values[0] == "yes"
+        await interaction.response.defer()
+
+    # ------------------------------------------------------------------
     # Buttons
     # ------------------------------------------------------------------
 
-    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success, row=4)
     async def yes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_authorized(interaction):
             return
@@ -120,7 +162,7 @@ class ItemSuggestionView(discord.ui.View):
             return
 
         try:
-            points = calc_points(self.suggested_item, divine=False, shiny=False)
+            points = calc_points(self.suggested_item, divine=self.is_divine, shiny=self.is_shiny)
             # Resolve the active PPE id first (raises if none)
             from utils.player_records import load_player_records, ensure_player_exists, get_active_ppe
             records = await load_player_records(interaction)
@@ -135,17 +177,22 @@ class ItemSuggestionView(discord.ui.View):
                 user=member,
                 ppe_id=ppe_id,
                 item_name=self.suggested_item,
-                divine=False,
-                shiny=False,
+                divine=self.is_divine,
+                shiny=self.is_shiny,
                 points=points,
             )
             print(
                 f"[item_suggestion] add succeeded "
                 f"guild={guild_id} user={member.id} item={self.suggested_item}"
             )
+            tags = ""
+            if self.is_shiny:
+                tags += " (shiny)"
+            if self.is_divine:
+                tags += " (divine)"
             await self._finish(
                 interaction,
-                f"Added **{self.suggested_item}** to your active PPE.",
+                f"Added **{self.suggested_item}**{tags} to your active PPE.",
             )
 
         except LookupError:
@@ -167,7 +214,7 @@ class ItemSuggestionView(discord.ui.View):
                 f"Could not add **{self.suggested_item}** to your active PPE.",
             )
 
-    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="No", style=discord.ButtonStyle.danger, row=4)
     async def no_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_authorized(interaction):
             return
