@@ -38,7 +38,7 @@ DESC_REGION_WIDTH = 600         # Fallback width when no second anchor is found
 DESC_REGION_HEIGHT = 35         # Fallback height when no second anchor is found
 
 # Supported image formats for template loading
-SUPPORTED_FORMATS = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
+SUPPORTED_FORMATS = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.PNG", "*.JPG", "*.JPEG", "*.WEBP"]
 
 # OCR preprocessing variant names, tried in this order (first is preferred)
 OCR_VARIANTS = ["padded_grayscale", "grayscale"]
