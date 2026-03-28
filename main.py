@@ -124,9 +124,9 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
     print("Message received")
     # --- PNG attachment listener ---
-    # Find the first PNG attachment, if any
+    # Find the first image attachment (png, jpg, jpeg, webp), if any
     attachment = next(
-        (a for a in message.attachments if a.filename.lower().endswith(".png")),
+        (a for a in message.attachments if a.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))),
         None,
     )
     if attachment is None:
