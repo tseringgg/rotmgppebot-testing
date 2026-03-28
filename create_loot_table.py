@@ -144,7 +144,7 @@ def create_loot_images_from_csv():
     if missing_items:
         print(f"❌ {len(missing_items)} items missing images:")
         for item_name, loot_type in missing_items:
-            print(f"  - {item_name} ({loot_type})")
+            # print(f"  - {item_name} ({loot_type})")
     else:
         print("✅ All items have images!")
     print("="*60)
