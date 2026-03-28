@@ -10,11 +10,13 @@ import asyncio
 import os
 import tempfile
 from typing import Optional
+from urllib import response
 
 import discord
 
 from utils.player_manager import player_manager
 from utils.calc_points import calc_points
+from slash_commands.helpers.loot_table_message import LootTableMessage
 
 # ---------------------------------------------------------------------------
 # Paths resolved once, relative to this file's location
@@ -172,7 +174,7 @@ class ItemSuggestionView(discord.ui.View):
                 raise LookupError("no active PPE")
             ppe_id = player_data.active_ppe
 
-            await player_manager.add_loot_and_points(
+            final_key, points_added, active_ppe, quest_update = await player_manager.add_loot_and_points(
                 interaction,
                 user=member,
                 ppe_id=ppe_id,
@@ -192,8 +194,17 @@ class ItemSuggestionView(discord.ui.View):
                 tags += " (divine)"
             await self._finish(
                 interaction,
-                f"Added **{self.suggested_item}**{tags} to your active PPE.",
+                f"> ✅ Added **{final_key}**{tags} to your active PPE for {points_added} points.",
             )
+
+            loot_message = LootTableMessage(
+                interaction=interaction,
+                message_type="markdown",
+                already_responded=True,
+                ephemeral=True,
+                embed_content=f"Your active PPE now has **{active_ppe.points} total points**.",
+            )
+            await loot_message.send_player_loot(active_ppe, user_id=member.id, recently_added=final_key)
 
         except LookupError:
             print(
